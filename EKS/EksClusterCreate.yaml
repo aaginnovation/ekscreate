@@ -1,20 +1,22 @@
-
+#export constant variable to be able to reuse in the process
 export ACCOUNT_ID=$(aws sts get-caller-identity --output text --query Account) 
 export AWS_REGION=$(curl -s 169.254.169.254/latest/dynamic/instance-identity/document | jq -r '.region')
 export AZS=($(aws ec2 describe-availability-zones --query 'AvailabilityZones[].ZoneName' --output text --region $AWS_REGION))
 
 
-
+#Install Kubectl
 sudo curl --silent --location -o /usr/local/bin/kubectl \
    https://s3.us-west-2.amazonaws.com/amazon-eks/1.21.5/2022-01-21/bin/linux/amd64/kubectl
-
+#Change mode of kubectl
 sudo chmod +x /usr/local/bin/kubectl
 
-
+#Install aws cli 
+#Skip this step if you have your aws cli configured already
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip
 sudo ./aws/install
 
+#Install jq into your server to help for bash completion
 sudo apt -y install jq gettext bash-completion moreutils
 
 echo 'yq() {
@@ -22,8 +24,12 @@ echo 'yq() {
 }' | tee -a ~/.bashrc && source ~/.bashrc
 
 
-Create admin iam role.
+#Create admin iam role.
+#Create Admin Role for your cluster and name it.
+#Attach this role to your server.
 
+
+#Install eksctl
 
 curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
 
@@ -31,6 +37,7 @@ sudo mv -v /tmp/eksctl /usr/local/bin
 
 eksctl version
 
+#Deploy clusterconfig
 
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
@@ -38,7 +45,7 @@ metadata:
   name: ekspractice
   region: eu-west-3
   version: "1.22"
-availabilityZones: ["eu-west-3a", "eu-west-3b", "eu-west-3c"]
+availabilityZones: ["${AZS[0]}", "${AZS[1]}", "${AZS[2]}"]
 managedNodeGroups:
 - name: mynodegroup
   desiredCapacity: 2
@@ -46,16 +53,18 @@ managedNodeGroups:
   ssh:
     enableSsm: true
 secretsEncryption:
-  keyARN: arn:aws:kms:eu-west-3:135155369967:key/48e0e2bc-429b-40c6-ad64-fbec67ef2127
+  keyARN: ${MASTER_ARN}
 
 eksctl version
 
+#NOTE: You can deploy this if you want your cluster with kapenter autoscaler
+# eksctl with karpenter
 
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 metadata:
   name: ekspractice
-  region: eu-west-3
+  region: ${region}
   version: "1.22"
 availabilityZones: ["${AZS[0]}", "${AZS[1]}", "${AZS[2]}"]
 managedNodeGroups:
@@ -71,12 +80,12 @@ karpenter:
 secretsEncryption:
   keyARN: ${MASTER_ARN}
 
-
+#create your cluster
 eksctl create cluster -f ekspractice.yaml
 
 
 
-
+#Create a CMK
 Creating and AWS CUSTOM MANAGED KEY {CMK}
 
 aws kms create-alias --alias-name alias/ekspractice --target-key-id $(aws kms create-key --query KeyMetadata.Arn --output text)
@@ -85,13 +94,12 @@ export MASTER_ARN=$(aws kms describe-key --key-id alias/ekspractice --query KeyM
 
 echo "export MASTER_ARN=${MASTER_ARN}" | tee -a ~/.bash_profile
 
-
 aws kms create-alias --alias-name alias/ekspractice --target-key-id $(aws kms create-key --query KeyMetadata.Arn --output text)
 
-
+#Clean your cluster
 eksctl delete cluster --name=ekspractice
 
-
+#Helm charts
 helm repo add stable https://charts.helm.sh/stable
 helm repo add bitnami https://charts.bitnami.com/bitnami
 
