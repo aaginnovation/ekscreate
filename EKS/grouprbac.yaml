@@ -1,0 +1,315 @@
+
+#LETS US CREATE ROLES FOR 3 USERS.
+
+export ACCOUNT_ID=$(aws sts get-caller-identity --output text --query Account)
+export POLICY=$(echo -n '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::'; echo -n "$ACCOUNT_ID"; echo -n ':root"},"Action":"sts:AssumeRole","Condition":{}}]}')
+
+echo ACCOUNT_ID=$ACCOUNT_ID
+echo POLICY=$POLICY
+
+#Here we are going to use aws cli to create IAM ROLES and these commands will give back to us our role ARNs.
+aws iam create-role \
+  --role-name k8sAdmin \
+  --description "Kubernetes administrator role (for AWS IAM Authenticator for Kubernetes)." \
+  --assume-role-policy-document "$POLICY" \
+  --output text \
+  --query 'Role.Arn'
+
+aws iam create-role \
+  --role-name k8sDev \
+  --description "Kubernetes developer role (for AWS IAM Authenticator for Kubernetes)." \
+  --assume-role-policy-document "$POLICY" \
+  --output text \
+  --query 'Role.Arn'
+  
+aws iam create-role \
+  --role-name k8sInteg \
+  --description "Kubernetes role for integration namespace in quick cluster." \
+  --assume-role-policy-document "$POLICY" \
+  --output text \
+  --query 'Role.Arn'
+
+
+#LET US ADD GROUPS SO WE CAN MAKE THEM TO ASSUME ROLES THATS WE HAVE CREATED.
+#The k8sAdmin Group will be allowed to assume the k8sAdmin IAM Role.
+
+aws iam create-group --group-name k8sAdmin
+#Let’s add a Policy on our group which will allow users from this group to assume our k8sAdmin Role:
+
+ADMIN_GROUP_POLICY=$(echo -n '{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAssumeOrganizationAccountRole",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::'; echo -n "$ACCOUNT_ID"; echo -n ':role/k8sAdmin"
+    }
+  ]
+}')
+echo ADMIN_GROUP_POLICY=$ADMIN_GROUP_POLICY
+
+aws iam put-group-policy \
+--group-name k8sAdmin \
+--policy-name k8sAdmin-policy \
+--policy-document "$ADMIN_GROUP_POLICY"
+
+--- 
+
+#The k8sDev Group will be allowed to assume the k8sDev IAM Role.
+
+aws iam create-group --group-name k8sDev
+# Let’s add a Policy on our group which will allow users from this group to assume our k8sDev Role:
+
+DEV_GROUP_POLICY=$(echo -n '{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAssumeOrganizationAccountRole",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::'; echo -n "$ACCOUNT_ID"; echo -n ':role/k8sDev"
+    }
+  ]
+}')
+echo DEV_GROUP_POLICY=$DEV_GROUP_POLICY
+
+aws iam put-group-policy \
+--group-name k8sDev \
+--policy-name k8sDev-policy \
+--policy-document "$DEV_GROUP_POLICY"
+
+#Create k8sInteg IAM Group
+
+aws iam create-group --group-name k8sInteg
+#Let’s add a Policy on our group which will allow users from this group to assume our k8sInteg Role:
+
+INTEG_GROUP_POLICY=$(echo -n '{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAssumeOrganizationAccountRole",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::'; echo -n "$ACCOUNT_ID"; echo -n ':role/k8sInteg"
+    }
+  ]
+}')
+echo INTEG_GROUP_POLICY=$INTEG_GROUP_POLICY
+
+aws iam put-group-policy \
+--group-name k8sInteg \
+--policy-name k8sInteg-policy \
+--policy-document "$INTEG_GROUP_POLICY"
+
+#You now should have your 3 groups
+
+aws iam list-groups
+
+
+#ADD USER AND GROUPS TO EKS CLUSTER WITH ROLE AND ROLE BINDING.
+
+#CREATE IAM USERS
+
+#In order to test our scenarios, we will create 3 users, one for each groups we created :
+
+aws iam create-user --user-name PaulAdmin
+aws iam create-user --user-name JeanDev
+aws iam create-user --user-name PierreInteg
+#Add users to associated groups:
+
+aws iam add-user-to-group --group-name k8sAdmin --user-name PaulAdmin
+aws iam add-user-to-group --group-name k8sDev --user-name JeanDev
+aws iam add-user-to-group --group-name k8sInteg --user-name PierreInteg
+#Check users are correctly added in their groups:
+
+aws iam get-group --group-name k8sAdmin
+aws iam get-group --group-name k8sDev
+aws iam get-group --group-name k8sInteg
+
+# For the sake of simplicity, in this chapter, we will save credentials to a file to make it easy to toggle back and forth between users.\
+#Never do this in production or with credentials that have priviledged access; It is not a security best practice to store credentials on \
+#the filesystem. Retrieve Access Keys for our fake users:
+
+aws iam create-access-key --user-name PaulAdmin | tee /tmp/PaulAdmin.json
+aws iam create-access-key --user-name JeanDev | tee /tmp/JeanDev.json
+aws iam create-access-key --user-name PierreInteg | tee /tmp/PierreInteg.json
+
+
+Recap:
+
+# PaulAdmin is in the k8sAdmin group and will be able to assume the k8sAdmin role.
+# JeanDev is in k8sDev Group and will be able to assume IAM role k8sDev
+# PierreInteg is in k8sInteg group and will be able to assume IAM role k8sInteg
+
+#Lets create namspace for our usergroups
+kubectl create namespace integration
+kubectl create namespace development
+
+
+#lETS create role and role binding for our groups
+----------------------------------------------
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dev-role
+rules:
+  - apiGroups:
+      - ""
+      - "apps"
+      - "batch"
+      - "extensions"
+    resources:
+      - "configmaps"
+      - "cronjobs"
+      - "deployments"
+      - "events"
+      - "ingresses"
+      - "jobs"
+      - "pods"
+      - "pods/attach"
+      - "pods/exec"
+      - "pods/log"
+      - "pods/portforward"
+      - "secrets"
+      - "services"
+    verbs:
+      - "create"
+      - "delete"
+      - "describe"
+      - "get"
+      - "list"
+      - "patch"
+      - "update"
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: dev-role-binding
+subjects:
+- kind: User
+  name: dev-user
+roleRef:
+  kind: Role
+  name: dev-role
+  apiGroup: rbac.authorization.k8s.io
+
+  ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: integ-role
+rules:
+  - apiGroups:
+      - ""
+      - "apps"
+      - "batch"
+      - "extensions"
+    resources:
+      - "configmaps"
+      - "cronjobs"
+      - "deployments"
+      - "events"
+      - "ingresses"
+      - "jobs"
+      - "pods"
+      - "pods/attach"
+      - "pods/exec"
+      - "pods/log"
+      - "pods/portforward"
+      - "secrets"
+      - "services"
+    verbs:
+      - "create"
+      - "delete"
+      - "describe"
+      - "get"
+      - "list"
+      - "patch"
+      - "update"
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: integ-role-binding
+subjects:
+- kind: User
+  name: integ-user
+roleRef:
+  kind: Role
+  name: integ-role
+  apiGroup: rbac.authorization.k8s.io
+# The role we define will give full access to everything in that namespace. It is a Role, and not a ClusterRole, so it is going to be applied only in the integration namespace.
+
+
+#LET US CONFIGURE ROLE ACCESS IN THE CLUSTER
+# Update the aws-auth ConfigMap to allow our IAM roles
+
+# The aws-auth ConfigMap from the kube-system namespace must be edited in order to allow or delete arn Groups.
+
+# This file makes the mapping between IAM role and k8S RBAC rights.
+
+# We can edit it using eksctl :
+
+
+eksctl create iamidentitymapping \
+  --cluster ${YOUR_CLUSTER_NAME} \
+  --arn arn:aws:iam::${ACCOUNT_ID}:role/k8sDev \
+  --username dev-user
+
+eksctl create iamidentitymapping \
+  --cluster ${YOUR_CLUSTER_NAME} \
+  --arn arn:aws:iam::${ACCOUNT_ID}:role/k8sInteg \
+  --username integ-user
+
+eksctl create iamidentitymapping \
+  --cluster ${YOUR_CLUSTER_NAME} \
+  --arn arn:aws:iam::${ACCOUNT_ID}:role/k8sAdmin \
+  --username admin \
+  --group system:masters
+
+#It can also be used to delete entries
+
+eksctl delete iamidentitymapping --cluster eksworkshop-eksctlv --arn arn:aws:iam::xxxxxxxxxx:role/k8sDev --username dev-user
+
+#lETS GET OUR CONFIGMAP 
+kubectl get cm -n kube-system aws-auth -o yaml
+
+#We can leverage eksctl to get a list of all identities managed in our cluster. Example:
+
+eksctl get iamidentitymapping --cluster eksworkshop-eksctl
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

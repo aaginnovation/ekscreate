@@ -1,0 +1,119 @@
+# Intro to RBAC in Kubernetes EKS CLUSTER
+
+# We will use webhook token authenticator feature for authentication and authorization in our EKS Cluster.
+# when user makes an api call. Api server uses the webohook auth plugin then sends out a request and ask to verify the token because \
+#  Api server doesnt have the user store so it sends it to IAM. and IAM verifies with signature and once its validated, then user is accepted.
+# Kubernetes Api server manages RBAC because it knows all the resources and so its incharge.
+
+# Getting Started.
+# ----------------
+# output the token Api server passes to the Aws
+ aws eks get-token --cluster-name ${YOUR_CLUSTER_NAME}
+#Output the caller identity
+ sts get-caller-identity
+
+
+kubectl create namespace rbac-test
+kubectl create deploy nginx --image=nginx -n rbac-test
+
+#To verify the test pods were properly installed, run:
+kubectl get all -n rbac-test
+
+#Create a user
+aws iam create-user --user-name rbac-user
+aws iam create-access-key --user-name rbac-user | tee /tmp/create_output.json
+
+#To make it easy to switch back and forth between the admin user you created the cluster with, and this \
+#new rbac-user, run the following command to create a script that when sourced, sets the active user to be rbac-user:
+
+cat << EoF > rbacuser_creds.sh
+export AWS_SECRET_ACCESS_KEY=$(jq -r .AccessKey.SecretAccessKey /tmp/create_output.json)
+export AWS_ACCESS_KEY_ID=$(jq -r .AccessKey.AccessKeyId /tmp/create_output.json)
+EoF
+
+#Next, we’ll define a k8s user called rbac-user, and map to its IAM user counterpart. Run the following to get the existing \
+# ConfigMap and save into a file called aws-auth.yaml:
+
+kubectl get configmap -n kube-system aws-auth -o yaml | grep -v "creationTimestamp\|resourceVersion\
+|selfLink\|uid" | sed '/^  annotations:/,+2 d' > aws-auth.yaml
+
+#Next append the rbac-user mapping to the existing configMap
+cat << EoF >> aws-auth.yaml
+data:
+  mapUsers: |
+    - userarn: arn:aws:iam::${ACCOUNT_ID}:user/rbac-user
+      username: rbac-user
+EoF
+
+#Note: Some of the values may be dynamically populated when the file is created. To verify everything populated and was created correctly, run the following:
+
+cat aws-auth.yaml
+#And the output should reflect that rolearn and userarn populated, similar to:
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapUsers: |
+    - userarn: arn:aws:iam::123456789:user/rbac-user
+      username: rbac-user
+
+#Next, apply the ConfigMap to apply this mapping to the system:
+
+kubectl apply -f aws-auth.yaml
+
+#lets confirm our new user with the following command.
+. rbacuser_creds.sh
+aws sts get-caller-identity
+
+
+#Now that a rbac-user is attached to our test namespace, lets try to access resouces with the user..this will be forbiden because user doenst have a role yet
+kubectl get pods -n rbac-test
+
+
+#Now lets get back to admin user and Assign role and RoleBinding for users in your cluster
+unset AWS_SECRET_ACCESS_KEY
+unset AWS_ACCESS_KEY_ID
+#verify admin user
+aws sts get-caller-identity
+#Lets create RBAC role
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  namespace: rbac-test
+  name: pod-reader
+rules:
+- apiGroups: [""] # "" indicates the core API group
+  resources: ["pods"]
+  verbs: ["list","get","watch"]
+- apiGroups: ["extensions","apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+
+#Lets create a Role Binding 
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: read-pods
+  namespace: rbac-test
+subjects:
+- kind: User
+  name: rbac-user
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+
+#Now lets swicth back to our rbac user
+. rbacuser_creds.sh; aws sts get-caller-identity
+kubectl get pods -n rbac-test
+#Now we can get resources but only in the namespace assigned.
+
+==============================================================
+
