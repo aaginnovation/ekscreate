@@ -6,8 +6,8 @@
 
 
 
-# sudo curl --silent --location -o /usr/local/bin/kubectl \
-#    https://s3.us-west-2.amazonaws.com/amazon-eks/1.21.5/2022-01-21/bin/linux/amd64/kubectl
+sudo curl --silent --location -o /usr/local/bin/kubectl \
+https://s3.us-west-2.amazonaws.com/amazon-eks/1.21.5/2022-01-21/bin/linux/amd64/kubectl
 
 # sudo chmod +x /usr/local/bin/kubectl
 
@@ -59,7 +59,6 @@ sudo apt -y install jq gettext bash-completion moreutils
 #Install eksctl
 
 curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
->>>>>>> da488f41673d3b8bcf1463aca6fe1e8d80c3337b
 
 # sudo mv -v /tmp/eksctl /usr/local/bin
 
@@ -82,7 +81,7 @@ curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/d
 #   ssh:
 #     enableSsm: true
 # secretsEncryption:
-#   keyARN: arn:aws:kms:eu-west-3:135155369967:key/48e0e2bc-429b-40c6-ad64-fbec67ef2127
+#   keyARN: ${MASTER_ARN}
 =======
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
@@ -189,5 +188,5 @@ eksctl delete cluster --name=ekspractice
 #Helm charts
 helm repo add stable https://charts.helm.sh/stable
 helm repo add bitnami https://charts.bitnami.com/bitnami
->>>>>>> da488f41673d3b8bcf1463aca6fe1e8d80c3337b
+>>>>>>> 
 
