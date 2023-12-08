@@ -21,7 +21,7 @@ eksctl version
 
 #Create a CMK
 #Creating and AWS CUSTOM MANAGED KEY 
-aws kms create-alias --alias-name alias/ekspractice --target-key-id $(aws kms create-key --query KeyMetadata.Arn --output text)
+aws kms create-alias --alias-name alias/my-eks-cluster --target-key-id $(aws kms create-key --query KeyMetadata.Arn --output text)
 export MASTER_ARN=$(aws kms describe-key --key-id alias/my-eks-cluster --query KeyMetadata.Arn --output text)
 #export MasterARN
 echo "export MASTER_ARN=${MASTER_ARN}" | tee -a ~/.bash_profile
