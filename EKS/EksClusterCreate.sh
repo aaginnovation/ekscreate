@@ -32,6 +32,7 @@ echo "export MASTER_ARN=${MASTER_ARN}" | tee -a ~/.bash_profile
 #create EKS cluster config file 
 vi eks-cluster-config.yaml
 
+-------------------------------
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 metadata:
@@ -58,7 +59,7 @@ iam:
   withOIDC: true
 secretsEncryption:
   keyARN: ${MASTER_ARN} #Replace ${MASTER_ARN} with exported value
-
+----------------------------------
 #Deploy your EKS cluster
 
 eksctl create cluster -f eks-config.yaml
